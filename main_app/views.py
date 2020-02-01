@@ -3,21 +3,48 @@ from django.views.generic.edit import CreateView, UpdateView, DeleteView
 from django.views.generic import ListView, DetailView
 from .models import Finch, Toy, Photo
 from .forms import FeedingForm
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth import login
+from django.contrib.auth.forms import UserCreationForm
 import uuid
 import boto3
 
 S3_BASE_URL = 'https://s3-us-east-2.amazonaws.com/'
 BUCKET = 'finchcollectors'
 
-class FinchCreate(CreateView):
+def signup(request):
+    error_message = ''
+    if request.method == 'POST':
+        # This is how to create a 'user' form object
+        # that includes the data from the browser
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+        # This will add the user to the database
+            user = form.save()
+        # This is how we log a user in via code
+            login(request, user)
+            return redirect('index')
+        else:
+            error_message = 'Invalid sign up - try again'
+    # A bad POST or a GET request, so render signup.html with an empty form
+    form = UserCreationForm()
+    context = {'form': form, 'error_message': error_message}
+    return render(request, 'registration/signup.html', context)
+
+class FinchCreate(LoginRequiredMixin, CreateView):
     model = Finch
     fields = '__all__'
 
-class FinchUpdate(UpdateView):
+    def form_valid(self, form):
+        form.instance.user = self.request.user
+        return super().form_valid(form)
+
+class FinchUpdate(LoginRequiredMixin, UpdateView):
     model = Finch
     fields = ['breed', 'description', 'age']
 
-class FinchDelete(DeleteView):
+class FinchDelete(LoginRequiredMixin, DeleteView):
     model = Finch
     success_url = '/finches/'
 
@@ -27,10 +54,12 @@ def home(request):
 def about(request):
     return render(request, 'about.html')
 
+@login_required
 def finches_index(request):
-    finches = Finch.objects.all()
+    finches = Finch.objects.filter(user=request.user)
     return render(request, 'finches/index.html', {'finches': finches})
 
+@login_required
 def finches_detail(request, finch_id):
     finch = Finch.objects.get(id=finch_id)
     toys_finch_doesnt_have = Toy.objects.exclude(
@@ -41,6 +70,7 @@ def finches_detail(request, finch_id):
         'toys': toys_finch_doesnt_have
     })
 
+@login_required
 def add_feeding(request, finch_id):
     # create the ModelForm using the data in request.POST
     form = FeedingForm(request.POST)
@@ -53,6 +83,7 @@ def add_feeding(request, finch_id):
         new_feeding.save()
     return redirect('detail', finch_id=finch_id)
 
+@login_required
 def add_photo(request, finch_id):
     # photo-file was the "name" attribute on the <input type="file">
     photo_file = request.FILES.get('photo-file', None)
@@ -69,32 +100,35 @@ def add_photo(request, finch_id):
         # we can assign to finch_id or finch (if you have a finch object)
             photo = Photo(url=url, finch_id=finch_id)
             photo.save()
-        except:
+        except Exception as e:
+            print(e)
             print('An error occurred uploading file to S3')
     return redirect('detail', finch_id=finch_id)
 
+@login_required
 def assoc_toy(request, finch_id, toy_id):
     Finch.objects.get(id=finch_id).toys.add(toy_id)
     return redirect('detail', finch_id=finch_id)
 
+@login_required
 def unassoc_toy(request, finch_id, toy_id):
     Finch.objects.get(id=finch_id).toys.remove(toy_id)
     return redirect('detail', finch_id=finch_id)
 
-class ToyList(ListView):
+class ToyList(LoginRequiredMixin, ListView):
     model = Toy
 
-class ToyDetail(DetailView):
+class ToyDetail(LoginRequiredMixin, DetailView):
     model = Toy
 
-class ToyCreate(CreateView):
+class ToyCreate(LoginRequiredMixin, CreateView):
     model = Toy
     fields = '__all__'
 
-class ToyUpdate(UpdateView):
+class ToyUpdate(LoginRequiredMixin, UpdateView):
     model = Toy
     fields = ['name', 'color']
 
-class ToyDelete(DeleteView):
+class ToyDelete(LoginRequiredMixin, DeleteView):
     model = Toy
     success_url = '/toys/'
